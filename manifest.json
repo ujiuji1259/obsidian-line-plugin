@@ -1,0 +1,11 @@
+{
+	"id": "obsidian-line-plugin",
+	"name": "Obsidian Line Plugin",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Lineのメッセージを取得してObsidianに保存するプラグイン",
+	"author": "Obsidian",
+	"authorUrl": "https://obsidian.md",
+	"fundingUrl": "https://obsidian.md/pricing",
+	"isDesktopOnly": false
+}
