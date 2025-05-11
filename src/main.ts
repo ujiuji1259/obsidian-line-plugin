@@ -1,8 +1,5 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, requestUrl, Setting, normalizePath, RequestUrlResponse, TFolder } from 'obsidian';
-
-type AdapterFile = {
-	type: 'folder' | 'file';
-};
+import { App, Notice, Plugin, PluginSettingTab, requestUrl, Setting, normalizePath, RequestUrlResponse, TFolder } from 'obsidian';
+import { getContents } from './contents';
 
 // Remember to rename these classes and interfaces!
 type LineMessage = {
@@ -22,7 +19,7 @@ const DEFAULT_SETTINGS: LineSettings = {
 }
 
 export default class LInePlugin extends Plugin {
-	settings: LineSettings;
+	settings: LineSettings = DEFAULT_SETTINGS;
 
 	async onload() {
 		await this.loadSettings();
@@ -91,17 +88,25 @@ class LineVaultManager {
 		}
 	}
 
-	private makeContents(message: LineMessage): string {
-		return [
-			`---`,
-			`source: LINE`,
-			`date: ${new Date(message.timestamp).toISOString()}`,
-			`messageId: ${message.messageId}`,
-			`---`,
-			``,
-			`${message.text}`
-		].join('\n');
-		
+	private async makeContents(message: LineMessage): Promise<string> {
+		// return 'hoge';
+		try {
+			const contents = await getContents(message.text);
+			return [
+				`---`,
+				`title: ${contents.title}`,
+				`date: ${new Date(message.timestamp).toISOString()}`,
+				`source: ${contents.source}`,
+				`messageId: ${message.messageId}`,
+				`tags: ${contents.tags.join(', ')}`,
+				`---`,
+				``,
+				`${contents.content}`
+			].join('\n');
+		} catch (error) {
+			new Notice(`メッセージの内容の取得に失敗しました: ${error}`);
+			throw new Error(`メッセージの内容の取得に失敗しました: ${error}`);
+		}
 	}
 
 	private async saveVaultIfNotExists(message: LineMessage): Promise<void> {
@@ -109,7 +114,8 @@ class LineVaultManager {
 		const normalizedFilePath = normalizePath(filePath);
 		const exists = await this.app.vault.adapter.exists(normalizedFilePath);
 		if (!exists) {
-			await this.app.vault.create(normalizedFilePath, this.makeContents(message));
+			const contents = await this.makeContents(message)
+			await this.app.vault.create(normalizedFilePath, contents);
 			new Notice(`${filePath}に新規メッセージを保存しました`);
 		}
 	}
@@ -120,6 +126,7 @@ class LineVaultManager {
 		try {
 			response = await requestUrl(this.lineSettings.lineMessageEndpoint);
 		} catch (error) {
+			new Notice(`LINEメッセージの取得に失敗しました: ${error}`);
 			throw new Error(`LINEメッセージの取得に失敗しました: ${error}`);
 		}
 
@@ -128,6 +135,7 @@ class LineVaultManager {
 		try {
 			messages = JSON.parse(text) as LineMessage[];
 		} catch (parseError) {
+			new Notice(`メッセージの同期に失敗しました: ${parseError}`);
 			throw new Error(`メッセージの同期に失敗しました: ${parseError}`);
 		}
 
