@@ -1,5 +1,5 @@
 import { App, Notice, Plugin, PluginSettingTab, requestUrl, Setting, normalizePath, RequestUrlResponse, TFolder } from 'obsidian';
-import { getContents } from './contents';
+import { getContents, Content } from './contents';
 
 // Remember to rename these classes and interfaces!
 type LineMessage = {
@@ -11,15 +11,19 @@ type LineMessage = {
 interface LineSettings {
 	lineMessageEndpoint: string;
 	documentDirectory: string;
+	clippingDirectory: string;
+	codeDirectory: string;
 }
 
 const DEFAULT_SETTINGS: LineSettings = {
 	lineMessageEndpoint: '',
-	documentDirectory: ''
+	documentDirectory: '',
+	clippingDirectory: '',
+	codeDirectory: ''
 }
 
 export default class LInePlugin extends Plugin {
-	settings: LineSettings = DEFAULT_SETTINGS;
+	settings: LineSettings;
 
 	async onload() {
 		await this.loadSettings();
@@ -75,29 +79,54 @@ class LineVaultManager {
 	constructor(private readonly app: App, private readonly lineSettings: LineSettings) {
 	}
 
-    private async getFilePath(message: LineMessage): Promise<string> {
-        const fileName = `${new Date(message.timestamp).toISOString().split('T')[0]}-${message.messageId}.md`;
-        return normalizePath(`${this.lineSettings.documentDirectory}/${fileName}`);
+	private async getVaultDirectory(content: Content): Promise<string> {
+		if (content.source === 'Web') {
+			return this.lineSettings.clippingDirectory;
+		}
+		if (content.source === 'GitHub') {
+			return this.lineSettings.codeDirectory;
+		}
+		if (content.source === 'LINE') {
+			return this.lineSettings.documentDirectory;
+		}
+		return this.lineSettings.documentDirectory;
+	}
+
+    private async getFilePath(contents: Content, message: LineMessage): Promise<string> {
+		if (contents.source === 'Web') {
+			return `${this.lineSettings.clippingDirectory}/${contents.title}.md`;
+		}
+		if (contents.source === 'GitHub') {
+			return `${this.lineSettings.codeDirectory}/${contents.title}.md`;
+		}
+		return `${this.lineSettings.documentDirectory}/${new Date(message.timestamp).toISOString().split('T')[0]}-${message.messageId}.md.md`;
     }
 
 	private async makeFolderIfNotExists(): Promise<void> {
-		const normalizedPath = normalizePath(this.lineSettings.documentDirectory);
-		const exists = await this.app.vault.adapter.exists(normalizedPath);
-		if (!exists) {
-			await this.app.vault.createFolder(normalizedPath);
+		const folders = [
+			this.lineSettings.documentDirectory,
+			this.lineSettings.clippingDirectory,
+			this.lineSettings.codeDirectory,
+		]
+		for (const folder of folders) {
+			const normalizedPath = normalizePath(folder);
+			const exists = await this.app.vault.adapter.exists(normalizedPath);
+			if (!exists) {
+				await this.app.vault.createFolder(normalizedPath);
+			}
 		}
 	}
 
-	private async makeContents(message: LineMessage): Promise<string> {
+	private async makeContents(contents: Content, message: LineMessage): Promise<string> {
 		// return 'hoge';
 		try {
-			const contents = await getContents(message.text);
 			return [
 				`---`,
 				`title: ${contents.title}`,
 				`date: ${new Date(message.timestamp).toISOString()}`,
 				`source: ${contents.source}`,
 				`messageId: ${message.messageId}`,
+				`url: ${contents.url}`,
 				`tags: ${contents.tags.join(', ')}`,
 				`---`,
 				``,
@@ -110,12 +139,13 @@ class LineVaultManager {
 	}
 
 	private async saveVaultIfNotExists(message: LineMessage): Promise<void> {
-		const filePath = await this.getFilePath(message);
+		const contents = await getContents(message.text);
+		const filePath = await this.getFilePath(contents, message);
 		const normalizedFilePath = normalizePath(filePath);
 		const exists = await this.app.vault.adapter.exists(normalizedFilePath);
 		if (!exists) {
-			const contents = await this.makeContents(message)
-			await this.app.vault.create(normalizedFilePath, contents);
+			const vaultMessage = await this.makeContents(contents, message);
+			await this.app.vault.create(normalizedFilePath, vaultMessage);
 			new Notice(`${filePath}に新規メッセージを保存しました`);
 		}
 	}
@@ -191,8 +221,39 @@ class LineSettingTab extends PluginSettingTab {
 				Object.keys(folders).forEach((val) => {
 					dropdown.addOption(val, val);
 				});
+				dropdown.setValue(this.plugin.settings.documentDirectory);
 				dropdown.onChange(async (value) => {
 					this.plugin.settings.documentDirectory = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new Setting(this.containerEl)
+			.setName('Clipping Directory')
+			.setDesc('クリッピングを保存するディレクトリのパス')
+			.addDropdown(async (dropdown) => {
+				const folders = await this.getAllFolders();
+				Object.keys(folders).forEach((val) => {
+					dropdown.addOption(val, val);
+				});
+				dropdown.setValue(this.plugin.settings.clippingDirectory);
+				dropdown.onChange(async (value) => {
+					this.plugin.settings.clippingDirectory = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new Setting(this.containerEl)
+			.setName('Code Directory')
+			.setDesc('コードを保存するディレクトリのパス')
+			.addDropdown(async (dropdown) => {
+				const folders = await this.getAllFolders();
+				Object.keys(folders).forEach((val) => {
+					dropdown.addOption(val, val);
+				});
+				dropdown.setValue(this.plugin.settings.codeDirectory);
+				dropdown.onChange(async (value) => {
+					this.plugin.settings.codeDirectory = value;
 					await this.plugin.saveSettings();
 				});
 			});

@@ -3,10 +3,11 @@ import { JSDOM } from 'jsdom';
 import { Defuddle } from 'defuddle/node';
 import TurndownService from 'turndown';
 
-type Content = {
+export type Content = {
     title: string;
     content: string;
     source: string;
+    url?: string;
     tags: string[];
 }
 
@@ -44,7 +45,8 @@ class WebClipper {
         return {
             title: result.title,
             content: result.content,
-            source: url,
+            source: 'Web',
+            url: url,
             tags: [],
         }
     }
@@ -62,9 +64,10 @@ class GitHubClipper {
         
         const response = await requestUrl(uithubUrl);
         return {
-            title: `${username}/${repo}`,
+            title: `${username} ${repo}`,
             content: response.text,
-            source: url,
+            source: 'GitHub',
+            url: url,
             tags: ['github'],
         };
     }
